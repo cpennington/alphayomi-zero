@@ -1,0 +1,33 @@
+-- This file has been generated from package.yaml by hpack version 0.20.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 2267020a1d0e45d863d432a68dc5354e4c39f3232d41fbc05e2aa973099aa25d
+
+name:           alphayomi-zero
+version:        0.1.0.0
+category:       Game
+homepage:       https://github.com/cpennington/alphayomi-zero#readme
+author:         Calen Pennington
+maintainer:     calen.pennington@gmail.com
+copyright:      2017
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+cabal-version:  >= 1.10
+
+extra-source-files:
+    README.md
+
+executable alphayomi-zero
+  main-is: Main.hs
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , lens
+  other-modules:
+      Yomi.AlphaZero.MOISMCTS
+      Yomi.AlphaZero.Types
+      Paths_alphayomi_zero
+  default-language: Haskell2010

@@ -1,0 +1,21 @@
+name:                alphayomi-zero
+version:             0.1.0.0
+#synopsis:
+#description:
+homepage:            https://github.com/cpennington/alphayomi-zero#readme
+license:             BSD3
+author:              Calen Pennington
+maintainer:          calen.pennington@gmail.com
+copyright:           '2017'
+category:            Game
+extra-source-files:
+- README.md
+
+dependencies:
+  - base >= 4.7 && < 5
+  - lens
+
+executables:
+  alphayomi-zero:
+    source-dirs:      src
+    main:             Main.hs
