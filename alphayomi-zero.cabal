@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 2267020a1d0e45d863d432a68dc5354e4c39f3232d41fbc05e2aa973099aa25d
+-- hash: 6ee032008a27235a464a1ba44f3451d799a8cd32ecbbbd665a609af4ed48694a
 
 name:           alphayomi-zero
 version:        0.1.0.0
@@ -19,15 +19,33 @@ cabal-version:  >= 1.10
 extra-source-files:
     README.md
 
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      MonadRandom
+    , base >=4.7 && <5
+    , lens
+    , transformers
+  exposed-modules:
+      Yomi.AlphaZero.MCTS.IS.MO
+      Yomi.AlphaZero.Types
+  other-modules:
+      Main
+      Paths_alphayomi_zero
+  default-language: Haskell2010
+
 executable alphayomi-zero
   main-is: Main.hs
   hs-source-dirs:
       src
   build-depends:
-      base >=4.7 && <5
+      MonadRandom
+    , base >=4.7 && <5
     , lens
+    , transformers
   other-modules:
-      Yomi.AlphaZero.MOISMCTS
+      Yomi.AlphaZero.MCTS.IS.MO
       Yomi.AlphaZero.Types
       Paths_alphayomi_zero
   default-language: Haskell2010

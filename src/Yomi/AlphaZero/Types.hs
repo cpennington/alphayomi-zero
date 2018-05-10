@@ -3,43 +3,61 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE RankNTypes #-}
 
 
 module Yomi.AlphaZero.Types where
 
 import Control.Lens.TH (makeFields)
+import Data.List.NonEmpty (NonEmpty(..))
+import Control.Monad.Random (MonadRandom)
 
 type Reward = Double
+data ActionType a = SingleMove a | RevealMoves [a]
+    deriving (Eq, Ord, Show)
 
 data Node p s a = Node
-    { _nodeState :: s
-    , _nodeIncoming :: a
+    { _nodeState :: Maybe s
+    , _nodeIncoming :: Maybe (ActionType a)
     , _nodeVisits :: Int
     , _nodeAvailable :: Int
-    , _nodeReward :: Reward
+    , _nodeTotalR :: Reward
+    , _nodeMeanR :: Reward
+    , _nodePrior :: Double
     , _nodeChildren :: [Node p s a]
     , _nodeOwner :: p
     }
+    deriving (Eq, Ord, Show)
+
 makeFields ''Node
 
-data Tree p s a = Tree
-    { _treeVisits :: Int
-    , _treeAvailable :: Int
-    , _treeReward :: Reward
-    , _treeChildren :: [Node p s a]
-    , _treeOwner :: p
-    }
-makeFields ''Tree
+unvisitedRoot :: s -> p -> Node p s a
+unvisitedRoot s p = Node (Just s) Nothing 0 0 0 0 0 [] p
 
-type GameNode g = Node (Player g) (PublicState g) (Action g)
-type GameTree g = Tree (Player g) (PublicState g) (Action g)
+leafNode :: p -> ActionType a -> Double -> Node p s a
+leafNode p a pr = Node Nothing (Just a) 0 0 0 0 pr [] p
 
-class Game a where
-    data PublicState a :: *
-    data PrivateState a :: *
-    data Action a :: *
-    data Player a :: *
-    data M a :: * -> *
+data State p a
+    = Victory p
+    | TieGame
+    | DecisionsRequired (NonEmpty (Decision p a))
+    deriving (Show)
 
-    players :: a -> (M a) [Player a]
-    determine :: a -> PublicState a -> (M a) (PrivateState a)
+data Decision p a = Decision p [a]
+    deriving (Show)
+
+type GameNode g a p = Node p (PlayerState g) a
+
+class Player p
+
+class Player p => Action a p where
+    obscureAction :: p -> a -> a
+
+class (Monad g, Action a p, Player p, MonadRandom g) => Game g a p | g -> a p where
+    type PlayerState g :: *
+
+    players :: g [p]
+    determine :: p -> PlayerState g -> g ()
+    currentState :: g (State p a)
+    playAction :: p -> a -> g ()
+    stateForPlayer :: p -> g (PlayerState g)
