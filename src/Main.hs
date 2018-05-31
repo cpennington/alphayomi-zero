@@ -11,14 +11,18 @@ import Yomi.AlphaZero.Types
 import Yomi.AlphaZero.MCTS.IS.MO
 
 import qualified Control.Monad.Trans.State as S
+import Control.Monad.Trans.Class (lift)
 import Data.List.NonEmpty (fromList)
 import Control.Lens.TH (makeFields)
 import Control.Lens (view, set, over)
 import Data.Maybe (isJust)
-import Control.Monad.Random (uniform)
+import Data.Random.Extras (choice)
+import Data.Random.Sample (sample)
+import Data.Random.Source (MonadRandom(..), monadRandom)
+import Data.Random.Source.IO ()
 
 data Move = Rock | Paper | Scissors
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 data RPS = RPS
   { _rPSP1Move :: (Maybe Move)
   , _rPSP2Move :: (Maybe Move)
@@ -30,15 +34,26 @@ data RPS = RPS
 makeFields ''RPS
 
 type RPSGame = S.StateT RPS IO
+
+$(monadRandom [d|
+        instance MonadRandom RPSGame where
+            getRandomWord8 = lift getRandomWord8
+            getRandomWord16 = lift getRandomWord16
+            getRandomWord32 = lift getRandomWord32
+            getRandomWord64 = lift getRandomWord64
+            getRandomDouble = lift getRandomDouble
+            getRandomNByteInteger = lift . getRandomNByteInteger
+    |])
+
 data RPSAction = RPSAction RPSPlayer (Maybe Move)
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 data RPSPlayer = P1 | P2
   deriving (Show, Eq, Ord)
 
 instance Player RPSPlayer
 
 instance Action RPSAction RPSPlayer where
-  obscureAction p (RPSAction o _) | p /= o = RPSAction o Nothing
+  obscureAction p (RPSAction o _) | p /= (Just o) = RPSAction o Nothing
   obscureAction _ a = a
 
 instance Game RPSGame RPSAction RPSPlayer where
@@ -48,25 +63,25 @@ instance Game RPSGame RPSAction RPSPlayer where
   determine P1 (move, pScore, oScore) = do
     p2Move' <- case move of
       Nothing -> return Nothing
-      Just _ -> uniform [Nothing, Just Rock, Just Paper, Just Scissors]
+      Just _ -> sample $ choice [Nothing, Just Rock, Just Paper, Just Scissors]
     S.put (RPS move p2Move' pScore oScore)
   determine P2 (move, pScore, oScore) = do
     p1Move' <- case move of
-      Nothing -> uniform [Nothing, Just Rock, Just Paper, Just Scissors]
-      Just _ -> uniform [Just Rock, Just Paper, Just Scissors]
+      Nothing -> sample $ choice [Nothing, Just Rock, Just Paper, Just Scissors]
+      Just _ -> sample $ choice [Just Rock, Just Paper, Just Scissors]
     S.put (RPS p1Move' move oScore pScore)
 
   currentState = do
     st <- S.get
     let req f p = if isJust $ view f st
           then []
-          else [Decision p $ map (RPSAction p . Just) [Rock, Paper, Scissors]]
+          else [Decision (Just p) $ map (RPSAction p . Just) [Rock, Paper, Scissors]]
     case (view p1Score st, view p2Score st) of
       (p1, p2) | p1 >= 2, p2 < 2 -> return $ Victory P1
       (p1, p2) | p1 < 2, p2 >= 2 -> return $ Victory P2
       (p1, p2) | p1 >= 2, p2 >= 2 -> return TieGame
       _ -> return $ DecisionsRequired $ fromList $ req p1Move P1 ++ req p2Move P2
-  playAction p (RPSAction _ (Just a)) = do
+  playAction (Just p) (RPSAction _ (Just a)) = do
     st <- S.get
     let playMove m Nothing = Just m
         playMove _ e = e
@@ -85,6 +100,7 @@ instance Game RPSGame RPSAction RPSPlayer where
       (Just Paper, Just Paper) -> S.put $ stReset
       (Just Scissors, Just Scissors) -> S.put $ stReset
       _ -> S.put st'
+  playAction Nothing _ = error "No environment actions"
 
   playAction _ (RPSAction _ Nothing) = return ()
   stateForPlayer p = do

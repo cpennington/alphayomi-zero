@@ -10,7 +10,7 @@ module Yomi.AlphaZero.Types where
 
 import Control.Lens.TH (makeFields)
 import Data.List.NonEmpty (NonEmpty(..))
-import Control.Monad.Random (MonadRandom)
+import Data.Random.Source (MonadRandom)
 
 type Reward = Double
 data ActionType a = SingleMove a | RevealMoves [a]
@@ -25,33 +25,34 @@ data Node p s a = Node
     , _nodeMeanR :: Reward
     , _nodePrior :: Double
     , _nodeChildren :: [Node p s a]
-    , _nodeOwner :: p
+    , _nodeOwner :: Maybe p
     }
     deriving (Eq, Ord, Show)
 
 makeFields ''Node
 
-unvisitedRoot :: s -> p -> Node p s a
-unvisitedRoot s p = Node (Just s) Nothing 0 0 0 0 0 [] p
+unvisitedRoot :: Maybe s -> Maybe p -> Node p s a
+unvisitedRoot s p = Node s Nothing 0 0 0 0 0 [] p
 
-leafNode :: p -> ActionType a -> Double -> Node p s a
+leafNode :: Maybe p -> ActionType a -> Double -> Node p s a
 leafNode p a pr = Node Nothing (Just a) 0 0 0 0 pr [] p
 
 data State p a
     = Victory p
     | TieGame
     | DecisionsRequired (NonEmpty (Decision p a))
-    deriving (Show)
+    deriving (Show, Eq)
 
-data Decision p a = Decision p [a]
-    deriving (Show)
+data Decision p a = Decision (Maybe p) [a]
+    deriving (Show, Ord, Eq)
 
 type GameNode g a p = Node p (PlayerState g) a
+type GameForest g a p = [GameNode g a p]
 
 class Player p
 
 class Player p => Action a p where
-    obscureAction :: p -> a -> a
+    obscureAction :: (Maybe p) -> a -> a
 
 class (Monad g, Action a p, Player p, MonadRandom g) => Game g a p | g -> a p where
     type PlayerState g :: *
@@ -59,5 +60,5 @@ class (Monad g, Action a p, Player p, MonadRandom g) => Game g a p | g -> a p wh
     players :: g [p]
     determine :: p -> PlayerState g -> g ()
     currentState :: g (State p a)
-    playAction :: p -> a -> g ()
+    playAction :: (Maybe p) -> a -> g ()
     stateForPlayer :: p -> g (PlayerState g)

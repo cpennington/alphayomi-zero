@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 6ee032008a27235a464a1ba44f3451d799a8cd32ecbbbd665a609af4ed48694a
+-- hash: 49ee44060931133b68c67c2e42556ba8db6f4a27fdb10857ad204cdcbbf05004
 
 name:           alphayomi-zero
 version:        0.1.0.0
@@ -23,9 +23,11 @@ library
   hs-source-dirs:
       src
   build-depends:
-      MonadRandom
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , lens
+    , random-extras
+    , random-fu
+    , random-source
     , transformers
   exposed-modules:
       Yomi.AlphaZero.MCTS.IS.MO
@@ -40,9 +42,11 @@ executable alphayomi-zero
   hs-source-dirs:
       src
   build-depends:
-      MonadRandom
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , lens
+    , random-extras
+    , random-fu
+    , random-source
     , transformers
   other-modules:
       Yomi.AlphaZero.MCTS.IS.MO

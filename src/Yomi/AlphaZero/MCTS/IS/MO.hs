@@ -7,7 +7,7 @@ import Yomi.AlphaZero.Types
 
 import Control.Lens (view, over, set, _2, _1)
 import Control.Monad (foldM, forM)
-import Data.List (maximumBy, (\\), sortBy, find, nub, intercalate)
+import Data.List (maximumBy, (\\), sortBy, find, nub, intercalate, sort)
 import Data.Ord (comparing)
 import Data.Maybe (catMaybes, fromJust)
 import Data.List.NonEmpty (NonEmpty(..), toList)
@@ -35,25 +35,28 @@ debug n = concat $
   , "\n"
   ] ++ map (unlines . (map ("  " ++)) . lines . debug) (view children n)
 
-moIsMcts :: (Game g a p, Eq p, Eq a, Ord p, Show p, Show a, Show (PlayerState g)) => p -> PlayerState g -> Int -> g (Maybe (ActionType a))
+moIsMcts :: (Game g a p, Eq p, Eq a, Ord p, Show p, Show a, Show (PlayerState g), Ord a) => p -> PlayerState g -> Int -> g (Maybe (ActionType a))
 moIsMcts currentPlayer playerState iterations = do
     ps <- players
-    roots <- forM ps $ \p -> do
-        st <- stateForPlayer p
+    roots <- forM (Nothing:map Just ps) $ \p -> do
+        st <- case p of
+            Just p_ -> fmap Just $ stateForPlayer p_
+            Nothing -> return Nothing
+
         return $ unvisitedRoot st p
 
     let expandOnce rs _ = do
             determine currentPlayer playerState
-            expanded <- expandRec $ trace (intercalate "\n" $ map debug rs) rs
+            expanded <- expandRec rs
             return $ map snd expanded
     roots' <- foldM expandOnce roots (replicate iterations ())
 
-    let opponentRoot = (trace (concatMap debug roots') roots') !! 1
+    let opponentRoot = roots' !! 1
         oppChildren = view children opponentRoot
 
     return $ view incoming $ maximumBy (comparing $ view visits) oppChildren
 
--- select :: (Game g a p, Eq p, Eq a) => [GameNode g a p] -> g ([GameNode g a p])
+-- select :: (Game g a p, Eq p, Eq a) => GameForest g a p -> g (GameForest g a p)
 -- select game nodes private = do
 --     unvisitedActions <- unvisited game nodes private
 --     if not $ null unvisitedActions
@@ -83,7 +86,7 @@ ucb1 n = mean + ucb1K * sqrt ((log avail) / vis)
         vis = 1 + (fromIntegral $ view visits n)
         avail = 1 + (fromIntegral $ view available n)
 
-bestChildUCB1 :: (Show p, Show a, Show s) => [Node p s a] -> ActionType a
+bestChildUCB1 :: (Show p, Show a, Show s, Foldable t) => t (Node p s a) -> ActionType a
 bestChildUCB1 cs = case action of
         Nothing -> error "Can't compute UCTB1 for a root node"
         Just a -> a
@@ -113,7 +116,7 @@ expandWithNetwork p _ = do
     gameState <- currentState
     case gameState of
         DecisionsRequired ((Decision _ as) :| _) -> do
-            let os = nub $ map (obscureAction p) as
+            let os = map (obscureAction (Just p)) as
             return (0.5, zip os (repeat (1.0 / (fromIntegral $ length os))))
         TieGame -> return (0, [])
         Victory p' | p == p' -> return (1, [])
@@ -121,7 +124,7 @@ expandWithNetwork p _ = do
 
 expandUnvisited
     :: (Game g a p, Eq a, Eq p, Ord p, Show p, Show a, Show (PlayerState g))
-    => [GameNode g a p] -> g () -> g [(Reward, GameNode g a p)] -> g [(Reward, GameNode g a p)]
+    => GameForest g a p -> g () -> g [(Reward, GameNode g a p)] -> g [(Reward, GameNode g a p)]
 expandUnvisited nodes before expandVisited =
     if any (null . view children) nodes
         then do
@@ -131,17 +134,20 @@ expandUnvisited nodes before expandVisited =
                 if null (view children n)
                     then do
                         let nodeOwner = view owner n
-                        playerState <- stateForPlayer nodeOwner
-                        (v, probabilities) <- expandWithNetwork nodeOwner playerState
-                        let cs' = map (uncurry $ leafNode nodeOwner) $ map (over _1 SingleMove) probabilities
-                        return $ (v, visitNode n v cs')
+                        case nodeOwner of
+                            Nothing -> return (0, visitNode n 0 [])
+                            Just o -> do
+                                playerState <- stateForPlayer o
+                                (v, probabilities) <- expandWithNetwork o playerState
+                                let cs' = map (uncurry $ leafNode (Just o)) $ map (over _1 SingleMove) probabilities
+                                return $ (v, visitNode n v cs')
                     else
                         return $ (0, visitNode n 0 (view children n))
         else expandVisited
 
 expandSimultaneous
-    :: (Game g a p, Eq a, Eq p, Ord p, Show p, Show a, Show (PlayerState g))
-    => [Decision p a] -> [(p, ActionType a)] -> [GameNode g a p] -> g [(Reward, GameNode g a p)]
+    :: (Game g a p, Eq a, Eq p, Ord p, Ord a, Show p, Show a, Show (PlayerState g))
+    => [Decision p a] -> [(Maybe p, ActionType a)] -> GameForest g a p -> g [(Reward, GameNode g a p)]
 expandSimultaneous [] pending nodes = do
     let (players', moves) = unzip pending
         actions = map (\(SingleMove a) -> a) moves
@@ -156,11 +162,12 @@ expandSimultaneous ((Decision p as):ds) pending nodes = do
         actions = map (\(SingleMove a) -> a) ms
     expandUnvisited nodes (sequence_ $ zipWith playAction players' actions) $ do
         let moves = map SingleMove as
-        case compatibleChildren moves (fromJust $ nodeForPlayer p nodes) of
-            [] -> error $ "No compatible children found: " ++ show (moves, (fromJust $ nodeForPlayer p nodes))
-            cs -> do
+            compatible = compatibleChildren moves (fromJust $ nodeForPlayer p nodes)
+        if null compatible
+            then error $ "No compatible children found: " ++ show (moves, (fromJust $ nodeForPlayer p nodes))
+            else do
                 -- pick best action
-                let best = bestChildUCB1 cs
+                let best = bestChildUCB1 compatible
 
                 -- find child node for best action for each player
                     childNodes = map (flip findOrCreate best) nodes
@@ -170,7 +177,7 @@ expandSimultaneous ((Decision p as):ds) pending nodes = do
                 -- update nodes with expanded children
                 return $ updateNodes nodes moves expandedChildren
 
-expandRec :: (Game g a p, Eq a, Eq p, Ord p, Show p, Show a, Show (PlayerState g)) => [GameNode g a p] -> g [(Reward, GameNode g a p)]
+expandRec :: (Game g a p, Eq a, Eq p, Ord p, Show p, Show a, Show (PlayerState g), Ord a) => GameForest g a p -> g [(Reward, GameNode g a p)]
 expandRec nodes = expandUnvisited nodes (return ()) $ do
     st <- currentState
     case st of
@@ -192,11 +199,11 @@ expandRec nodes = expandUnvisited nodes (return ()) $ do
 
                     -- update nodes with expanded children
                     return $ updateNodes nodes moves expandedChildren
-        DecisionsRequired ds -> expandSimultaneous (toList ds) [] nodes
+        DecisionsRequired ds -> expandSimultaneous (sort $ toList ds) [] nodes
 
         TieGame -> return $ zip (repeat 0.0) nodes
         Victory p' ->
-            return $ zip (map (value . (== p') . view owner) nodes) nodes
+            return $ zip (map (value . (== (Just p')) . view owner) nodes) nodes
                 where
                     value True = 1.0
                     value False = 0.0
@@ -228,10 +235,10 @@ updateNodes parents availableActions expandedChildren = zipWith update sortedPar
                     over children (map incrementAvailable) $
                     visitNode parent reward $ replaceChild child $ view children parent
 
-nodeForPlayer :: (HasOwner n p, Eq p) => p -> [n] -> Maybe n
-nodeForPlayer p = find ((== p) . view owner)
+nodeForPlayer :: (HasOwner n p, Eq p, Show n, Show p) => p -> [n] -> Maybe n
+nodeForPlayer p n = traceShow (p, n) $ find ((== p) . view owner) n
 
-unvisited :: (Game g a p, Eq a, Eq p) => [GameNode g a p] -> g [ActionType a]
+unvisited :: (Game g a p, Eq a, Eq p, Ord a, Show p, Show a, Show (PlayerState g)) => GameForest g a p -> g ([ActionType a])
 unvisited nodes = do
     st <- currentState
     case st of
